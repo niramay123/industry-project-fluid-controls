@@ -242,36 +242,57 @@ export const forgotPassword =async(req,res)=>{
     }
 }
 
-
 export const getAllOperators = async (req, res) => {
   try {
-    const operators = await User.find({ role: /^operator$/i });
+    const operators = await User.find(
+      { role: /^operator$/i },
+      { password: 0 }
+    ).lean();
 
-    const operatorsWithAvailability = await Promise.all(
-      operators.map(async (op) => {
-        const totalTasks = await Task.countDocuments({ 
-          user_id: op._id,
-          status: { $ne: "Completed" }  // count only active tasks
-        });
-        return {
-          _id: op._id,
-          name: op.name,
-          email: op.email,
-          totalTasks,
-          availability: totalTasks >= 3 ? "Busy" : "Available",
-        };
-      })
-    );
+    if (!operators.length) {
+      return res.status(200).json({ success: true, operators: [] });
+    }
 
-    res.status(200).json({
-      success: true,
-      operators: operatorsWithAvailability,
+    const operatorIds = operators.map(op => op._id);
+
+    const taskCounts = await Task.aggregate([
+      {
+        $match: { 
+          assignedTo: { $in: operatorIds },
+          status: { $ne: "Completed" }
+        }
+      },
+      { $unwind: "$assignedTo" },
+      {
+        $group: {
+          _id: "$assignedTo",
+          totalTasks: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const countMap = {};
+    taskCounts.forEach(tc => {
+      countMap[tc._id.toString()] = tc.totalTasks;
     });
+
+    const result = operators.map(op => {
+      const totalTasks = countMap[op._id.toString()] || 0;
+
+      return {
+        _id: op._id,
+        name: op.name,
+        email: op.email,
+        totalTasks,
+        availability: totalTasks >= 3 ? "Busy" : "Available",
+      };
+    });
+
+    res.status(200).json({ success: true, operators: result });
+
   } catch (error) {
-    console.error("--- [getAllOperators] An error occurred:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error while fetching operators."
-    });
+    console.error("getAllOperators error:", error);
+    res.status(500).json({ success: false, message: "Internal error" });
   }
 };
+

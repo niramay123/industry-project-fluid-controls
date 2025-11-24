@@ -1,24 +1,28 @@
-const userSockets = {}; // { userId: [socketId1, socketId2] }
+// utils/socketManager.js
 
-export const addSocket = (userId, socketId) =>{
-    if(!userSockets[userId]) userSockets[userId] = [];
-    
-    userSockets[userId].push(socketId);
+// Store user connections: Map<UserId, Set<SocketId>>
+const userSocketMap = new Map();
+
+export const addSocket = (userId, socketId) => {
+  if (!userSocketMap.has(userId)) {
+    userSocketMap.set(userId, new Set());
+  }
+  userSocketMap.get(userId).add(socketId);
 };
 
-export const removeSocket = (userId,socketId)=>{
-    if(userSockets[userId])
-    {
-        userSockets[userId] = userSockets[userId].filter(id=>id!==socketId);
-        if(userSockets[userId].length === 0) delete userSockets[userId];
+export const removeSocket = (userId, socketId) => {
+  if (userSocketMap.has(userId)) {
+    const userSockets = userSocketMap.get(userId);
+    userSockets.delete(socketId);
+    if (userSockets.size === 0) {
+      userSocketMap.delete(userId);
     }
+  }
 };
 
-export const emitToUser = (userId,event,data)=>{
-    if(userSockets[userId] && global.io)
-    {
-        userSockets[userId].forEach(socketId => {
-            global.io.to(socketId).emit(event,data);
-        });
-    }
-}
+export const getUserSockets = (userId) => {
+  if (userSocketMap.has(userId)) {
+    return Array.from(userSocketMap.get(userId));
+  }
+  return [];
+};

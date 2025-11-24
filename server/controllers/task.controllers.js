@@ -47,15 +47,15 @@ export const createTask = async (req, res) => {
   }
 };
 
+// In controllers/task.controllers.js
+
 export const assignTask = async (req, res) => {
   try {
     const { assignedTo } = req.body;
     const { id } = req.params;
 
     if (!assignedTo) {
-      return res
-        .status(400)
-        .json({ success: false, message: "assignedTo is required" });
+      return res.status(400).json({ success: false, message: "assignedTo is required" });
     }
 
     const task = await Task.findByIdAndUpdate(
@@ -64,21 +64,24 @@ export const assignTask = async (req, res) => {
       { new: true, runValidators: true }
     );
 
-    
-
     if (!task) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Task not found" });
+      return res.status(404).json({ success: false, message: "Task not found" });
     }
 
-    //Trigger notification
-    // when creating
-    await createNotification(assignedTo, `Task "${task.title}" assigned to you`, task._id);
+    // ✔ Notification Logic (Handles Array or Single ID)
+    const message = `Task "${task.title}" has been assigned to you.`;
     
-    res
-      .status(200)
-      .json({ success: true, message: "Task assigned successfully", task });
+    if (Array.isArray(assignedTo)) {
+        // If multiple people assigned, notify all
+        assignedTo.forEach(userId => {
+            createNotification(userId, message, task._id);
+        });
+    } else {
+        // Single person
+        createNotification(assignedTo, message, task._id);
+    }
+
+    res.status(200).json({ success: true, message: "Task assigned successfully", task });
   } catch (error) {
     console.error("Error assigning task:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -172,9 +175,11 @@ export const deleteTask = async (req, res) => {
 };
 
 // Update task status
+
+
 export const updateStatus = async (req, res) => {
   try {
-    const { status, comment } = req.body; // accept optional comment
+    const { status, comment } = req.body; 
     const task = await Task.findById(req.params.id);
 
     if (!task) {
@@ -190,6 +195,7 @@ export const updateStatus = async (req, res) => {
       return res.status(403).json({ success: false, message: "Not authorized" });
     }
 
+    // Update task fields
     task.status = status;
     if (comment) {
       task.comments.push({ text: comment, user: req.user.id });
@@ -197,12 +203,27 @@ export const updateStatus = async (req, res) => {
 
     await task.save();
 
-    res.status(200).json({ success: true, message: "Task status updated", task });
+    // 🔥 Populate before sending response
+    const populatedTask = await Task.findById(task._id)
+      .populate('createdBy', 'name email')
+      .populate('assignedTo', 'name email');
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Task status updated", 
+      task: populatedTask 
+    });
+
   } catch (error) {
     console.error("Error updating status:", error);
-    res.status(500).json({ success: false, message: "Error updating task status", error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: "Error updating task status", 
+      error: error.message 
+    });
   }
 };
+
 
 
 

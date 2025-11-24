@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Bell, CheckCheck, Trash2 } from 'lucide-react';
 import apiClient from '../apiClient';
+import { io } from "socket.io-client";
 
 interface Notification {
   _id: string;
@@ -15,16 +16,56 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Use useRef to manage the socket instance to prevent re-connections on re-renders
+  const socketRef = useRef(null);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // Fetch notifications on mount
+  // 1. Socket Connection Logic
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    // Connect only if not already connected
+    if (!socketRef.current) {
+      socketRef.current = io(import.meta.env.VITE_API_URL || "http://localhost:5000", {
+        transports: ["websocket"],
+      });
+
+      const socket = socketRef.current;
+
+      socket.on("connect", () => {
+        // Authenticate with the backend event we created
+        socket.emit("connectUser", token);
+        console.log("Connected to notification socket");
+      });
+
+      socket.on("notification", (newNotification) => {
+        console.log("📩 Real-time notification:", newNotification);
+        setNotifications(prev => [newNotification, ...prev]);
+      });
+
+      socket.on("disconnect", () => {
+        console.log("Disconnected from socket");
+      });
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, []);
+
+  // 2. Fetch existing notifications
   useEffect(() => {
     const fetchNotifications = async () => {
       setIsLoading(true);
       try {
-        const response = await apiClient.get('/notifications');
-        console.log("Notifications fetched:", response.data);
+        const response = await apiClient.get('/notifications'); // Matches backend route
         setNotifications(response.data || []);
       } catch (error) {
         console.error("Failed to fetch notifications:", error);
@@ -32,14 +73,24 @@ export default function NotificationBell() {
         setIsLoading(false);
       }
     };
-    fetchNotifications();
-  }, []);
 
+    if (isOpen) {
+        // Optional: Only fetch when opening the popover to save bandwidth, 
+        // or keep it in the mount useEffect if you want the badge count immediately on load.
+        // For now, I'll keep it on mount as per your original logic:
+    }
+    fetchNotifications();
+  }, []); // Run once on mount
+
+  // 3. Handlers
   const handleMarkAllRead = async () => {
     if (unreadCount === 0) return;
     try {
+      // Optimistic update
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      
+      // Backend call
       await apiClient.put('/notifications/mark-all-read');
-      setNotifications(notifications.map(n => ({ ...n, read: true })));
     } catch (error) {
       console.error(error);
       alert("Failed to mark all notifications as read.");
@@ -51,14 +102,18 @@ export default function NotificationBell() {
     if (!window.confirm("Are you sure you want to clear all notifications?")) return;
 
     try {
-      await apiClient.delete('/notifications');
+      // Optimistic update
       setNotifications([]);
+
+      // Backend call
+      await apiClient.delete('/notifications');
     } catch (error) {
       console.error(error);
       alert("Failed to clear notifications.");
     }
   };
 
+  // --- UI REMAINS EXACTLY AS ORIGINAL ---
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>

@@ -63,6 +63,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
       className="w-12 h-12 object-contain"
     />
   </div>
+        <h1 className="text-2xl font-bold text-slate-900"> Effective Information Flow System</h1>
+
   <h1 className="text-2xl font-bold text-slate-900">Sign in to your Account</h1>
   <p className="text-slate-500 mt-1 text-sm">Welcome back! Please enter your details.</p>
 </div>

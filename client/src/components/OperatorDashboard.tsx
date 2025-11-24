@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -8,14 +8,13 @@ import {
   AlertTriangle,
   Play,
   CheckSquare,
-  FileText
+  FileText,
+  Loader2 // Imported Loader2 for the loading spinner
 } from 'lucide-react';
 import { User } from '../App';
 import { getTasksAPI, updateStatusAPI } from '../services/apiTask.services';
-import apiClient from '../apiClient';
-import { getAllDocumentsAPI } from '../services/apiDoc.services.js';
-import DocumentTab from './DocumentsTab.js';
-import OperatorDocumentTab from './DocumentOperator.js';
+import { getAllDocumentsAPI } from '../services/apiDoc.services';
+import OperatorDocumentTab from './DocumentOperator';
 
 // --- Interfaces ---
 interface Document {
@@ -56,51 +55,67 @@ export function OperatorDashboard({ user }: OperatorDashboardProps) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // State for completion logic
   const [completingTask, setCompletingTask] = useState<Task | null>(null);
   const [comment, setComment] = useState('');
 
+  // Optimization 1: Track which task is currently updating to show specific loading circle
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
+
   // --- Fetch Tasks & Documents ---
-useEffect(() => {
-  const fetchData = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
 
-      const [tasksRes, docsRes] = await Promise.all([
-        getTasksAPI(),
-        getAllDocumentsAPI() // use your exported API function
-      ]);
+        const [tasksRes, docsRes] = await Promise.all([
+          getTasksAPI(),
+          getAllDocumentsAPI()
+        ]);
 
-      setTasks(tasksRes.data.tasks || []);
-      setDocuments(docsRes.data.documents || []);
-    } catch (err) {
-      console.error("Failed to fetch data:", err);
-      setError("Could not load your assigned tasks or documents.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  fetchData();
-}, []);
-
+        setTasks(tasksRes.data.tasks || []);
+        setDocuments(docsRes.data.documents || []);
+      } catch (err) {
+        console.error("Failed to fetch data:", err);
+        setError("Could not load your assigned tasks or documents.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   // --- Update Task Status ---
   const updateTaskStatus = async (taskId: string, newStatus: Task['status'], commentText?: string) => {
+    // Start loading for this specific task
+    setUpdatingTaskId(taskId);
+    
+    // Store original tasks for rollback on error
     const originalTasks = [...tasks];
+    
+    // Optimistic UI update (optional, but makes it feel snappy even before spinner finishes)
     setTasks(prev => prev.map(t => t._id === taskId ? { ...t, status: newStatus } : t));
+
     try {
       const payload: { status: string; comment?: string } = { status: newStatus };
       if (commentText) payload.comment = commentText;
 
       const response = await updateStatusAPI(taskId, payload);
+      
+      // Update with server response to ensure sync
       setTasks(prev => prev.map(t => t._id === taskId ? response.data.task : t));
     } catch (err) {
       console.error('Failed to update task status:', err);
+      // Revert optimistic update
       setTasks(originalTasks);
       alert("Failed to update task status. Please try again.");
     } finally {
+      // Cleanup states
       setCompletingTask(null);
       setComment('');
+      setUpdatingTaskId(null); // Stop loading circle
     }
   };
 
@@ -127,18 +142,7 @@ useEffect(() => {
     setComment('');
   };
 
-  // --- View Document ---
-  const viewDocument = (doc: Document) => window.open(`http://localhost:5000${doc.filePath}`, "_blank");
-
   // --- Helpers ---
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Pending': return 'bg-slate-100 text-slate-800';
-      case 'In Progress': return 'bg-blue-100 text-blue-800';
-      case 'Completed': return 'bg-green-100 text-green-800';
-      default: return 'bg-slate-100 text-slate-800';
-    }
-  };
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'Low': return 'bg-slate-100 text-slate-800';
@@ -199,7 +203,9 @@ useEffect(() => {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-center text-slate-500 py-8">Loading...</p>
+            <div className="flex justify-center items-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+            </div>
           ) : error ? (
             <p className="text-center text-red-500 py-8">{error}</p>
           ) : tasks.length === 0 ? (
@@ -208,26 +214,47 @@ useEffect(() => {
             <div className="space-y-4">
               {tasks.map(task => {
                 const isOverdue = new Date(task.deadline) < new Date() && task.status !== 'Completed';
+                const isUpdating = updatingTaskId === task._id;
+                const isCompleted = task.status === 'Completed';
+
                 return (
                   <div key={task._id} className={`border rounded-lg p-4 ${isOverdue ? 'border-red-200 bg-red-50' : 'border-slate-200'}`}>
                     <div className="flex justify-between items-center mb-3">
                       <h3 className="font-medium text-slate-900">{task.title}</h3>
-                      <select
-                        value={task.status}
-                        onChange={e => handleStatusChange(task, e.target.value as Task['status'])}
-                        className="border rounded-md px-2 py-1 text-sm"
-                      >
-                        <option value="Pending">Pending</option>
-                        <option value="In Progress">In Progress</option>
-                        <option value="Completed">Completed</option>
-                      </select>
+                      
+                      {/* Optimization Logic: 
+                         1. If updating, show Loader.
+                         2. If completed, show static Badge (Cannot change).
+                         3. Otherwise, show Select.
+                      */}
+                      {isUpdating ? (
+                         <div className="flex items-center px-2 py-1">
+                             <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                         </div>
+                      ) : isCompleted ? (
+                        <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-100 cursor-default px-3 py-1">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Completed
+                        </Badge>
+                      ) : (
+                        <select
+                          value={task.status}
+                          onChange={e => handleStatusChange(task, e.target.value as Task['status'])}
+                          disabled={isUpdating}
+                          className="border rounded-md px-2 py-1 text-sm bg-white cursor-pointer hover:border-slate-400 focus:ring-2 focus:ring-blue-200 transition-all"
+                        >
+                          <option value="Pending">Pending</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      )}
                     </div>
 
                     {/* Comment box for completion */}
-                    {completingTask?._id === task._id && (
-                      <div className="mt-3 flex flex-col space-y-2">
+                    {completingTask?._id === task._id && !isUpdating && (
+                      <div className="mt-3 flex flex-col space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
                         <textarea
-                          placeholder="Add a comment..."
+                          placeholder="Add a closing comment..."
                           value={comment}
                           onChange={e => setComment(e.target.value)}
                           className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
@@ -267,8 +294,8 @@ useEffect(() => {
           )}
         </CardContent>
       </Card>
-{/* Documents Section */}
-<OperatorDocumentTab/>
+      {/* Documents Section */}
+      <OperatorDocumentTab/>
     </div>
   );
 }

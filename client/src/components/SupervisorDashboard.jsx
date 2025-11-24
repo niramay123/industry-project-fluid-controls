@@ -1,61 +1,68 @@
-import React, { useState, useMemo, useEffect } from "react";
 import TaskForm from "./CreateTaskDialog";
 import DocumentTab from "./DocumentsTab";
+// ⭐ IMPORT THE NEW COMPONENT
+import CommentPopup from "./CommentPopup.jsx";
+import { useState, useMemo, useEffect } from "react";
 
-import { 
+import {
   getTasksAPI,
   deleteTaskAPI,
-  updateStatusAPI,
-  createTaskAPI,
   editTaskAPI,
+  createTaskAPI,
   assignTaskAPI,
-  getAllOperatorsAPI
+  getAllOperatorsAPI,
 } from "../services/apiTask.services.js";
 
 export default function SupervisorDashboard() {
-  // Mock profile
   const profile = { name: "Anish Patil", role: "Supervisor" };
 
-  // Operators state
+  // Operators & Tasks state
   const [operators, setOperators] = useState([]);
   const [availableOperators, setAvailableOperators] = useState([]);
-
-  // Tasks & Documents state
   const [tasks, setTasks] = useState([]);
-  const [documents, setDocuments] = useState([]);
 
   // UI state
   const [activeTab, setActiveTab] = useState("tasks");
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState(null);
 
-  // Task form state
-  const initialForm = { title: "", description: "", deadline: "", priority: "Medium", assignedTo: [] };
-  const [taskForm, setTaskForm] = useState(initialForm);
+  // ⭐ Comment Popup State
+  const [activeCommentTask, setActiveCommentTask] = useState(null);
 
-  // Document upload form
-  const [docForm, setDocForm] = useState({ title: "", filter: "Safety", file: null });
+  const initialForm = {
+    title: "",
+    description: "",
+    deadline: "",
+    priority: "Medium",
+    assignedTo: [],
+  };
+  const [taskForm, setTaskForm] = useState(initialForm);
 
   // Derived counts
   const counts = useMemo(() => {
     const total = tasks.length;
-    const completed = tasks.filter(t => t.status === "Completed").length;
-    const overdue = tasks.filter(t => t.deadline && new Date(t.deadline) < new Date() && t.status !== "Completed").length;
+    const completed = tasks.filter((t) => t.status === "Completed").length;
+    const overdue = tasks.filter(
+      (t) =>
+        t.deadline &&
+        new Date(t.deadline) < new Date() &&
+        t.status !== "Completed"
+    ).length;
     const members = operators.length;
     return { total, completed, overdue, members };
   }, [tasks, operators]);
 
-  // Fetch operators from backend
+  // Fetch operators
   useEffect(() => {
     async function fetchOperators() {
       try {
         const res = await getAllOperatorsAPI();
         if (res.data.success) {
-          const allOps = res.data.operators.map(op => ({
+          const allOps = res.data.operators.map((op) => ({
             id: op._id,
             name: op.name,
             email: op.email,
-            totalTasks: op.totalTasks || 0
+            totalTasks: op.totalTasks || 0,
           }));
           setOperators(allOps);
         }
@@ -66,17 +73,19 @@ export default function SupervisorDashboard() {
     fetchOperators();
   }, []);
 
-  // Fetch tasks from backend
+  // Fetch tasks
   useEffect(() => {
     async function fetchTasks() {
       try {
         const res = await getTasksAPI();
         if (res.data.success) {
-          setTasks(res.data.tasks.map(t => ({
-            ...t,
-            _id: t._id,
-            assignedTo: t.assignedTo?.map(u => u._id) || [],
-          })));
+          setTasks(
+            res.data.tasks.map((t) => ({
+              ...t,
+              _id: t._id,
+              assignedTo: t.assignedTo?.map((u) => u._id) || [],
+            }))
+          );
         }
       } catch (err) {
         console.error("Error fetching tasks", err);
@@ -85,66 +94,66 @@ export default function SupervisorDashboard() {
     fetchTasks();
   }, []);
 
-  // Update available operators whenever tasks or operators change
-  useEffect(() => {
-    const available = operators.filter(op => {
-      const activeTasks = tasks.filter(
-        t => t.assignedTo.includes(op.id) && t.status !== "Completed"
-      ).length;
-      return activeTasks < 3; // available if less than 3 active tasks
-    });
-    setAvailableOperators(available);
-  }, [tasks, operators]);
+  // Update available operators
+  // useEffect(() => {
+  //   const available = operators.filter(op => {
+  //     const activeTasks = tasks.filter(
+  //       t => t.assignedTo.includes(op.id) && t.status !== "Completed"
+  //     ).length;
+  //     return activeTasks < 3;
+  //   });
+  //   setAvailableOperators(available);
+  // }, [tasks, operators]);
 
   // --- Task Handlers ---
   const saveTask = async (e) => {
     e.preventDefault();
-
-    if (!taskForm.title || !taskForm.deadline) {
+    if (!taskForm.title || !taskForm.deadline)
       return alert("Please provide title and deadline");
-    }
 
     try {
       let taskId;
-
       if (editingTaskId) {
-        // --- EDIT TASK ---
         const res = await editTaskAPI(editingTaskId, taskForm);
         if (res.data.success) {
           taskId = editingTaskId;
-          setTasks(prev =>
-            prev.map(t =>
+          setTasks((prev) =>
+            prev.map((t) =>
               t._id === editingTaskId
-                ? { ...res.data.task, assignedTo: res.data.task.assignedTo?.map(u => u._id) || [] }
+                ? {
+                    ...res.data.task,
+                    assignedTo:
+                      res.data.task.assignedTo?.map((u) => u._id) || [],
+                  }
                 : t
             )
           );
 
           if (taskForm.assignedTo?.length) {
             await assignTaskAPI(taskId, { assignedTo: taskForm.assignedTo });
-            setTasks(prev =>
-              prev.map(t =>
-                t._id === editingTaskId ? { ...t, assignedTo: taskForm.assignedTo } : t
+            setTasks((prev) =>
+              prev.map((t) =>
+                t._id === editingTaskId
+                  ? { ...t, assignedTo: taskForm.assignedTo }
+                  : t
               )
             );
           }
         }
       } else {
-        // --- CREATE TASK ---
         const res = await createTaskAPI(taskForm);
         if (res.data.success) {
           const newTask = res.data.data;
           taskId = newTask._id;
-
           if (taskForm.assignedTo?.length) {
-            const assignRes = await assignTaskAPI(taskId, { assignedTo: taskForm.assignedTo });
+            const assignRes = await assignTaskAPI(taskId, {
+              assignedTo: taskForm.assignedTo,
+            });
             newTask.assignedTo = assignRes.data.task.assignedTo || [];
           }
-
-          setTasks(prev => [newTask, ...prev]);
+          setTasks((prev) => [newTask, ...prev]);
         }
       }
-
       setShowTaskForm(false);
       setTaskForm(initialForm);
       setEditingTaskId(null);
@@ -158,20 +167,10 @@ export default function SupervisorDashboard() {
     if (!confirm("Delete this task?")) return;
     try {
       const res = await deleteTaskAPI(id);
-      if (res.data.success) setTasks(prev => prev.filter(t => t._id !== id));
+      if (res.data.success)
+        setTasks((prev) => prev.filter((t) => t._id !== id));
     } catch (err) {
       console.error("Error deleting task", err);
-      alert("Failed to delete task");
-    }
-  };
-
-  const changeTaskStatus = async (id, status) => {
-    try {
-      const res = await updateStatusAPI(id, status);
-      if (res.data.success) setTasks(prev => prev.map(t => t._id === id ? { ...t, status } : t));
-    } catch (err) {
-      console.error("Error updating status", err);
-      alert("Failed to update status");
     }
   };
 
@@ -193,129 +192,194 @@ export default function SupervisorDashboard() {
     setShowTaskForm(true);
   };
 
-  const toggleAssign = (operatorId) => {
-    setTaskForm(prev => {
-      const assigned = prev.assignedTo || [];
-      if (assigned.includes(operatorId)) return { ...prev, assignedTo: assigned.filter(a => a !== operatorId) };
-      return { ...prev, assignedTo: [...assigned, operatorId] };
-    });
-  };
-
-  const handleDocUpload = (e) => {
-    e.preventDefault();
-    if (!docForm.title || !docForm.file) return alert("Please provide a title and file");
-    const newDoc = { id: "doc_" + Math.random().toString(36).slice(2,9), title: docForm.title, filter: docForm.filter, fileName: docForm.file.name, uploadedAt: new Date().toISOString() };
-    setDocuments(prev => [newDoc, ...prev]);
-    setDocForm({ title: "", filter: "Safety", file: null });
-  };
-
-  const updateTaskField = (id, field, value) => {
-    setTasks(prev => prev.map(t => t._id === id ? { ...t, [field]: value } : t));
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-800">
-      {/* Top Bar */}
-      {/* <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-md bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center text-white font-bold">FC</div>
-            <div>
-              <div className="text-xl font-semibold text-blue-700">Fluid Controls Pvt. Ltd.</div>
-              <div className="text-sm text-gray-500">Supervisor Dashboard</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right mr-4">
-              <div className="font-medium">{profile.name}</div>
-              <div className="text-sm text-gray-500">{profile.role}</div>
-            </div>
-            <button className="px-3 py-2 rounded-md bg-blue-600 text-white">Logout</button>
-          </div>
-        </div>
-      </header> */}
+    <div className="min-h-screen bg-white text-gray-800 p-6 relative">
+      {/* ⭐ USE THE NEW COMPONENT */}
+      {activeCommentTask && (
+        <CommentPopup
+          task={activeCommentTask}
+          onClose={() => setActiveCommentTask(null)}
+        />
+      )}
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        {/* Stat cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <StatCard title="Total Tasks" value={counts.total} icon="clock" />
-          <StatCard title="Completed" value={counts.completed} icon="check" />
-          <StatCard title="Overdue" value={counts.overdue} icon="alert" />
-          <StatCard title="Team Members" value={counts.members} icon="users" />
+      <main className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Supervisor Dashboard
+            </h1>
+            <p className="text-blue-500">Welcome, {profile.name}</p>
+          </div>
+          <div className="text-sm bg-white px-3 py-1 rounded shadow-sm border">
+            {new Date().toLocaleDateString()}
+          </div>
         </div>
+
+        {/* Stats */}
+        <section className="mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8 md:mb-12">
+            <StatCard title="Total Tasks" value={counts.total} icon="📋" />
+            <StatCard title="Completed" value={counts.completed} icon="✅" />
+            <StatCard title="Overdue" value={counts.overdue} icon="⚠️" />
+            <StatCard title="Members" value={counts.members} icon="👥" />
+          </div>
+        </section>
+
+        <div className="my-8 border-t border-gray-200" />
 
         {/* Tabs */}
-        <div className="bg-white rounded-lg shadow p-1 mb-6 flex gap-1 items-center">
-          <Tab label="Task Management" active={activeTab==="tasks"} onClick={()=>setActiveTab("tasks")} />
-          <Tab label="Team Overview" active={activeTab==="team"} onClick={()=>setActiveTab("team")} />
-          <Tab label="Upload Document" active={activeTab==="docs"} onClick={()=>setActiveTab("docs")} />
-          <Tab label="Analytics" active={activeTab==="analytics"} onClick={()=>setActiveTab("analytics")} />
+        <div className="bg-white p-2 rounded-lg shadow-sm flex gap-2 mb-6 w-fit border border-gray-100">
+          <Tab
+            label="Task Management"
+            active={activeTab === "tasks"}
+            onClick={() => setActiveTab("tasks")}
+          />
+          <Tab
+            label="Team Overview"
+            active={activeTab === "team"}
+            onClick={() => setActiveTab("team")}
+          />
+          <Tab
+            label="Documents"
+            active={activeTab === "docs"}
+            onClick={() => setActiveTab("docs")}
+          />
         </div>
 
-        {/* Tab Content */}
-        <div className="bg-white rounded-lg shadow p-6">
-          {activeTab==="tasks" && (
+        {/* Main Content */}
+        <div className="bg-white rounded-lg shadow-md p-6 min-h-[500px]">
+          {/* TASKS TAB */}
+          {activeTab === "tasks" && (
             <>
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h2 className="text-2xl font-semibold">Task Management</h2>
-                  <p className="text-sm text-gray-500">Create, assign, and monitor tasks</p>
-                </div>
-                <div>
-                  <button onClick={openCreateTask} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md">+ Create Task</button>
-                </div>
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold">Active Tasks</h2>
+                <button
+                  onClick={openCreateTask}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition"
+                >
+                  + Create Task
+                </button>
               </div>
 
               {showTaskForm && (
-                <TaskForm
-                  taskForm={taskForm}
-                  setTaskForm={setTaskForm}
-                  operators={availableOperators}
-                  onSave={saveTask}
-                  onCancel={()=>setShowTaskForm(false)}
-                  editing={!!editingTaskId}
-                />
+                <div className="mb-6 p-4 border rounded-lg bg-gray-50">
+                  <TaskForm
+                    taskForm={taskForm}
+                    setTaskForm={setTaskForm}
+                    operators={availableOperators}
+                    onSave={saveTask}
+                    onCancel={() => setShowTaskForm(false)}
+                    editing={!!editingTaskId}
+                  />
+                </div>
               )}
 
-              <div className="overflow-auto">
-                {tasks.length===0 ? (
-                  <div className="py-12 text-center text-red-500">No tasks yet — create one using the button above.</div>
+              <div className="overflow-x-auto">
+                {tasks.length === 0 ? (
+                  <div className="text-center py-10 text-gray-500">
+                    No tasks found. Create one to get started.
+                  </div>
                 ) : (
-                  <table className="w-full table-auto border-collapse">
+                  <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="text-left text-sm text-gray-500 border-b">
-                        <th className="py-2 px-2">Title</th>
-                        <th className="py-2 px-2">Description</th>
-                        <th className="py-2 px-2">Deadline</th>
-                        <th className="py-2 px-2">Priority</th>
-                        <th className="py-2 px-2">Assigned To</th>
-                        <th className="py-2 px-2">Status</th>
-                        <th className="py-2 px-2">Actions</th>
+                      <tr className="bg-gray-100 border-b border-gray-200 text-gray-600 text-sm uppercase">
+                        <th className="py-3 px-4">Title</th>
+                        <th className="py-3 px-4">Deadline</th>
+                        <th className="py-3 px-4">Priority</th>
+                        <th className="py-3 px-4">Assigned To</th>
+                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4">Comments</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {tasks.map(t => (
-                        <tr key={t._id} className="align-top border-b">
-                          <td className="py-3 px-2 w-40">{t.title}</td>
-                          <td className="py-3 px-2 text-sm text-gray-600">{t.description}</td>
-                          <td className="py-3 px-2">{t.deadline?.split("T")[0]}</td>
-                          <td className="py-3 px-2">{t.priority}</td>
-                          <td className="py-3 px-2 text-sm">
-                            {t.assignedTo.length>0 ? (
-                              <ul className="list-disc pl-5">
-                                {t.assignedTo.map(a=>{
-                                  const op = operators.find(o=>o.id===a);
-                                  return <li key={a}>{op ? op.name : a}</li>;
-                                })}
-                              </ul>
-                            ) : <span className="text-gray-400">Unassigned</span>}
+                    <tbody className="divide-y divide-gray-100">
+                      {tasks.map((t) => (
+                        <tr key={t._id} className="hover:bg-gray-50">
+                          <td className="py-3 px-4 font-medium">{t.title}</td>
+                          <td className="py-3 px-4 text-sm">
+                            {t.deadline
+                              ? new Date(t.deadline).toLocaleDateString()
+                              : "-"}
                           </td>
-                          <td className="py-3 px-2">{t.status}</td>
-                          <td className="py-3 px-2">
-                            <div className="flex gap-2">
-                              <button onClick={()=>openEditTask(t)} className="px-2 py-1 rounded border text-sm">Edit</button>
-                              <button onClick={()=>deleteTask(t._id)} className="px-2 py-1 rounded border text-sm text-red-600">Delete</button>
-                            </div>
+                          <td className="py-3 px-4">
+                            <Badge type={t.priority} />
+                          </td>
+                          <td className="py-3 px-4 text-sm text-gray-600">
+                            {t.assignedTo.length > 0 ? (
+                              <span className="bg-gray-200 px-2 py-1 rounded text-xs">
+                                {t.assignedTo.length} Operators
+                              </span>
+                            ) : (
+                              "Unassigned"
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <StatusBadge status={t.status} />
+                          </td>
+
+                          {/* Show Comment Button Logic */}
+                          <td className="py-3 px-4">
+                            {t.comment && t.comment.trim().length > 0 ? (
+                              <button
+                                onClick={() => setActiveCommentTask(t)}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition border border-blue-100"
+                              >
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  className="h-4 w-4"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
+                                  />
+                                </svg>
+                                <span className="text-xs font-semibold">
+                                  View
+                                </span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => setActiveCommentTask(t)}
+                                className="  flex items-center gap-2 px-3 py-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition"
+                              >
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  className="h-4 w-4"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                                  />
+                                </svg>
+                                <span className="text-xs ">Show Comments</span>
+                              </button>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 text-right space-x-2">
+                            <button
+                              onClick={() => openEditTask(t)}
+                              className="text-blue-600 hover:underline text-sm"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => deleteTask(t._id)}
+                              className="text-red-600 hover:underline text-sm"
+                            >
+                              Delete
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -326,51 +390,55 @@ export default function SupervisorDashboard() {
             </>
           )}
 
-          {/* Team Overview */}
+          {/* TEAM TAB */}
           {activeTab === "team" && (
-            <>
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h2 className="text-2xl font-semibold">Team Overview</h2>
-                  <p className="text-sm text-gray-500">List of all team members and their roles</p>
-                </div>
-              </div>
-
-              <div className="overflow-auto">
-                {operators.length === 0 ? (
-                  <div className="py-12 text-center text-red-500">No team members found.</div>
-                ) : (
-                  <table className="w-full table-auto border-collapse">
-                    <thead>
-                      <tr className="text-left text-sm text-gray-500 border-b">
-                        <th className="py-2 px-2">Sr. No.</th>
-                        <th className="py-2 px-2">Name</th>
-                        <th className="py-2 px-2">Email</th>
-                        <th className="py-2 px-2">Role</th>
-                        <th className="py-2 px-2">Availability Status</th>
+            <div className="overflow-x-auto">
+              <h2 className="text-xl font-semibold mb-6">Team Members</h2>
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 border-b text-gray-600 text-sm uppercase">
+                    <th className="py-3 px-4">Name</th>
+                    <th className="py-3 px-4">Email</th>
+                    <th className="py-3 px-4">Active Tasks by You</th>
+                    <th className="py-3 px-4">Assigned Total</th>
+                    <th className="py-3 px-4">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {operators.map((op) => {
+                    const activeTasks = tasks.filter(
+                      (t) =>
+                        t.assignedTo.includes(op.id) && t.status !== "Completed"
+                    ).length;
+                    const isBusy = activeTasks >= 3;
+                    return (
+                      <tr
+                        key={op.id}
+                        className="border-b last:border-0 hover:bg-gray-50"
+                      >
+                        <td className="py-3 px-4 font-medium">{op.name}</td>
+                        <td className="py-3 px-4 text-gray-600">{op.email}</td>
+                        <td className="py-3 px-4">{activeTasks}</td>
+                        <td className="py-3 px-4">{op.totalTasks}</td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-1 rounded text-xs font-bold 
+    ${
+      op.totalTasks >= 3
+        ? "bg-orange-100 text-orange-700"
+        : "bg-green-100 text-green-700"
+    }
+  `}
+                          >
+                            {op.totalTasks >= 3 ? "Busy" : "Available"}
+                          </span>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {operators.map((op, index) => {
-                        const activeTasks = tasks.filter(
-                          t => t.assignedTo.includes(op.id) && t.status !== "Completed"
-                        ).length;
-                        const availability = activeTasks >= 3 ? "Busy" : "Available";
-                        return (
-                          <tr key={op.id} className="border-b">
-                            <td className="py-3 px-2">{index + 1}</td>
-                            <td className="py-3 px-2">{op.name}</td>
-                            <td className="py-3 px-2">{op.email}</td>
-                            <td className="py-3 px-2">Operator</td>
-                            <td className="py-3 px-2 text-gray-400">{availability}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
 
           {activeTab === "docs" && <DocumentTab />}
@@ -380,23 +448,69 @@ export default function SupervisorDashboard() {
   );
 }
 
-/* --- Small helper components --- */
+/* --- HELPERS --- */
 function StatCard({ title, value, icon }) {
   return (
-    <div className="bg-white rounded-lg p-4 shadow-sm flex items-center justify-between">
+    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between">
       <div>
-        <div className="text-sm text-gray-500">{title}</div>
+        <div className="text-gray-500 text-sm">{title}</div>
         <div className="text-2xl font-bold">{value}</div>
       </div>
-      <div className="w-12 h-12 rounded-md bg-blue-100 flex items-center justify-center text-blue-700 font-semibold">
-        {icon==="check"?"✓":icon==="alert"?"!":icon==="users"?"👥":"⏱"}
-      </div>
+      <div className="text-2xl">{icon}</div>
     </div>
   );
 }
 
 function Tab({ label, active, onClick }) {
-  return <button onClick={onClick} className={`px-4 py-2 ${active?"bg-white shadow rounded":"text-gray-500"}`}>{label}</button>;
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+        active ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"
+      }`}
+    >
+      {label}
+    </button>
+  );
 }
 
+function Badge({ type }) {
+  const colors = {
+    High: "bg-red-100 text-red-800",
+    Medium: "bg-yellow-100 text-yellow-800",
+    Low: "bg-green-100 text-green-800",
+  };
+  return (
+    <span
+      className={`px-2 py-0.5 rounded text-xs font-bold ${
+        colors[type] || "bg-gray-100"
+      }`}
+    >
+      {type}
+    </span>
+  );
+}
 
+function StatusBadge({ status }) {
+  const normalizedStatus = status ? status.toLowerCase() : "";
+  let colorClass = "bg-gray-100 text-gray-700 border-gray-200";
+
+  if (normalizedStatus === "completed" || normalizedStatus === "complemented") {
+    colorClass = "bg-green-100 text-green-700 border-green-200";
+  } else if (normalizedStatus === "pending") {
+    colorClass = "bg-yellow-100 text-yellow-800 border-yellow-200";
+  } else if (
+    normalizedStatus.includes("process") ||
+    normalizedStatus.includes("progress")
+  ) {
+    colorClass = "bg-blue-100 text-blue-700 border-blue-200";
+  }
+
+  return (
+    <span
+      className={`px-2.5 py-0.5 rounded border text-xs font-bold capitalize ${colorClass}`}
+    >
+      {status}
+    </span>
+  );
+}

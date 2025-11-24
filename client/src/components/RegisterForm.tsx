@@ -78,7 +78,7 @@ export function RegisterForm() {
       className="w-12 h-12 object-contain"
     />
   </div>
-          <h1 className="text-3xl font-bold text-slate-900">Task Manager</h1>
+          <h1 className="text-3xl font-bold text-slate-900"> Effective Information Flow System</h1>
           <p className="text-slate-600 mt-2">Create your account</p>
         </div>
 
