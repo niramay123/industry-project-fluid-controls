@@ -1,6 +1,5 @@
 import TaskForm from "./CreateTaskDialog";
 import DocumentTab from "./DocumentsTab";
-// ⭐ IMPORT THE NEW COMPONENT
 import CommentPopup from "./CommentPopup.jsx";
 import { useState, useMemo, useEffect } from "react";
 
@@ -26,7 +25,7 @@ export default function SupervisorDashboard() {
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState(null);
 
-  // ⭐ Comment Popup State
+  // Comment Popup State
   const [activeCommentTask, setActiveCommentTask] = useState(null);
 
   const initialForm = {
@@ -52,17 +51,20 @@ export default function SupervisorDashboard() {
     return { total, completed, overdue, members };
   }, [tasks, operators]);
 
-  // Fetch operators
+  // 1. FETCH OPERATORS (Updated to use Backend Global Data)
   useEffect(() => {
     async function fetchOperators() {
       try {
         const res = await getAllOperatorsAPI();
         if (res.data.success) {
+          // Your backend now returns: { _id, name, totalTasks, availability }
           const allOps = res.data.operators.map((op) => ({
             id: op._id,
             name: op.name,
             email: op.email,
-            totalTasks: op.totalTasks || 0,
+            // ⭐ USE BACKEND DATA: This count is now Global (across all supervisors)
+            totalTasks: op.totalTasks, 
+            status: op.availability 
           }));
           setOperators(allOps);
         }
@@ -71,9 +73,10 @@ export default function SupervisorDashboard() {
       }
     }
     fetchOperators();
-  }, []);
+    // ⭐ Re-fetch operators whenever 'tasks' change so the count updates immediately after you assign someone
+  }, [tasks]); 
 
-  // Fetch tasks
+  // Fetch tasks (Supervisor's specific tasks)
   useEffect(() => {
     async function fetchTasks() {
       try {
@@ -94,16 +97,16 @@ export default function SupervisorDashboard() {
     fetchTasks();
   }, []);
 
-  // Update available operators
-  // useEffect(() => {
-  //   const available = operators.filter(op => {
-  //     const activeTasks = tasks.filter(
-  //       t => t.assignedTo.includes(op.id) && t.status !== "Completed"
-  //     ).length;
-  //     return activeTasks < 3;
-  //   });
-  //   setAvailableOperators(available);
-  // }, [tasks, operators]);
+  // 2. UPDATE AVAILABLE OPERATORS
+  useEffect(() => {
+    if (operators.length === 0) return;
+
+    // We rely purely on the Backend's "totalTasks" count now.
+    // No more local filtering of the 'tasks' array.
+    const available = operators.filter((op) => op.totalTasks < 3);
+
+    setAvailableOperators(available);
+  }, [operators]); 
 
   // --- Task Handlers ---
   const saveTask = async (e) => {
@@ -114,6 +117,7 @@ export default function SupervisorDashboard() {
     try {
       let taskId;
       if (editingTaskId) {
+        // Edit Mode
         const res = await editTaskAPI(editingTaskId, taskForm);
         if (res.data.success) {
           taskId = editingTaskId;
@@ -122,8 +126,7 @@ export default function SupervisorDashboard() {
               t._id === editingTaskId
                 ? {
                     ...res.data.task,
-                    assignedTo:
-                      res.data.task.assignedTo?.map((u) => u._id) || [],
+                    assignedTo: res.data.task.assignedTo?.map((u) => u._id) || [],
                   }
                 : t
             )
@@ -141,6 +144,7 @@ export default function SupervisorDashboard() {
           }
         }
       } else {
+        // Create Mode
         const res = await createTaskAPI(taskForm);
         if (res.data.success) {
           const newTask = res.data.data;
@@ -194,7 +198,7 @@ export default function SupervisorDashboard() {
 
   return (
     <div className="min-h-screen bg-white text-gray-800 p-6 relative">
-      {/* ⭐ USE THE NEW COMPONENT */}
+      
       {activeCommentTask && (
         <CommentPopup
           task={activeCommentTask}
@@ -230,21 +234,9 @@ export default function SupervisorDashboard() {
 
         {/* Tabs */}
         <div className="bg-white p-2 rounded-lg shadow-sm flex gap-2 mb-6 w-fit border border-gray-100">
-          <Tab
-            label="Task Management"
-            active={activeTab === "tasks"}
-            onClick={() => setActiveTab("tasks")}
-          />
-          <Tab
-            label="Team Overview"
-            active={activeTab === "team"}
-            onClick={() => setActiveTab("team")}
-          />
-          <Tab
-            label="Documents"
-            active={activeTab === "docs"}
-            onClick={() => setActiveTab("docs")}
-          />
+          <Tab label="Task Management" active={activeTab === "tasks"} onClick={() => setActiveTab("tasks")} />
+          <Tab label="Team Overview" active={activeTab === "team"} onClick={() => setActiveTab("team")} />
+          <Tab label="Documents" active={activeTab === "docs"} onClick={() => setActiveTab("docs")} />
         </div>
 
         {/* Main Content */}
@@ -267,7 +259,8 @@ export default function SupervisorDashboard() {
                   <TaskForm
                     taskForm={taskForm}
                     setTaskForm={setTaskForm}
-                    operators={availableOperators}
+                    // Fallback to all operators if no one is 'available' (Urgent override)
+                    operators={availableOperators.length > 0 ? availableOperators : operators}
                     onSave={saveTask}
                     onCancel={() => setShowTaskForm(false)}
                     editing={!!editingTaskId}
@@ -298,9 +291,7 @@ export default function SupervisorDashboard() {
                         <tr key={t._id} className="hover:bg-gray-50">
                           <td className="py-3 px-4 font-medium">{t.title}</td>
                           <td className="py-3 px-4 text-sm">
-                            {t.deadline
-                              ? new Date(t.deadline).toLocaleDateString()
-                              : "-"}
+                            {t.deadline ? new Date(t.deadline).toLocaleDateString() : "-"}
                           </td>
                           <td className="py-3 px-4">
                             <Badge type={t.priority} />
@@ -318,68 +309,33 @@ export default function SupervisorDashboard() {
                             <StatusBadge status={t.status} />
                           </td>
 
-                          {/* Show Comment Button Logic */}
                           <td className="py-3 px-4">
-                            {t.comment && t.comment.trim().length > 0 ? (
+                            {(t.comments && t.comments.length > 0) ? (
                               <button
                                 onClick={() => setActiveCommentTask(t)}
                                 className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition border border-blue-100"
                               >
-                                <svg
-                                  xmlns="http://www.w3.org/2000/svg"
-                                  className="h-4 w-4"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
-                                  />
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
                                 </svg>
-                                <span className="text-xs font-semibold">
-                                  View
-                                </span>
+                                <span className="text-xs font-semibold">View</span>
                               </button>
                             ) : (
                               <button
                                 onClick={() => setActiveCommentTask(t)}
-                                className="  flex items-center gap-2 px-3 py-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition"
+                                className="flex items-center gap-2 px-3 py-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition"
                               >
-                                <svg
-                                  xmlns="http://www.w3.org/2000/svg"
-                                  className="h-4 w-4"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-                                  />
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                                 </svg>
-                                <span className="text-xs ">Show Comments</span>
+                                <span className="text-xs ">Empty</span>
                               </button>
                             )}
                           </td>
 
                           <td className="py-3 px-4 text-right space-x-2">
-                            <button
-                              onClick={() => openEditTask(t)}
-                              className="text-blue-600 hover:underline text-sm"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => deleteTask(t._id)}
-                              className="text-red-600 hover:underline text-sm"
-                            >
-                              Delete
-                            </button>
+                            <button onClick={() => openEditTask(t)} className="text-blue-600 hover:underline text-sm">Edit</button>
+                            <button onClick={() => deleteTask(t._id)} className="text-red-600 hover:underline text-sm">Delete</button>
                           </td>
                         </tr>
                       ))}
@@ -399,38 +355,27 @@ export default function SupervisorDashboard() {
                   <tr className="bg-gray-100 border-b text-gray-600 text-sm uppercase">
                     <th className="py-3 px-4">Name</th>
                     <th className="py-3 px-4">Email</th>
-                    <th className="py-3 px-4">Active Tasks by You</th>
-                    <th className="py-3 px-4">Assigned Total</th>
+                    <th className="py-3 px-4">Global Active Tasks</th>
                     <th className="py-3 px-4">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {operators.map((op) => {
-                    const activeTasks = tasks.filter(
-                      (t) =>
-                        t.assignedTo.includes(op.id) && t.status !== "Completed"
-                    ).length;
-                    const isBusy = activeTasks >= 3;
+                    // ⭐ UPDATED LOGIC: Use values directly from Backend
+                    const activeTasks = op.totalTasks;
+                    const isBusy = activeTasks >= 3; 
+
                     return (
-                      <tr
-                        key={op.id}
-                        className="border-b last:border-0 hover:bg-gray-50"
-                      >
+                      <tr key={op.id} className="border-b last:border-0 hover:bg-gray-50">
                         <td className="py-3 px-4 font-medium">{op.name}</td>
                         <td className="py-3 px-4 text-gray-600">{op.email}</td>
-                        <td className="py-3 px-4">{activeTasks}</td>
-                        <td className="py-3 px-4">{op.totalTasks}</td>
+                        <td className="py-3 px-4 font-bold text-gray-700">{activeTasks}</td>
                         <td className="py-3 px-4">
-                          <span
-                            className={`px-2 py-1 rounded text-xs font-bold 
-    ${
-      op.totalTasks >= 3
-        ? "bg-orange-100 text-orange-700"
-        : "bg-green-100 text-green-700"
-    }
-  `}
+                          <span className={`px-2 py-1 rounded text-xs font-bold ${
+                              isBusy ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"
+                            }`}
                           >
-                            {op.totalTasks >= 3 ? "Busy" : "Available"}
+                            {isBusy ? "Busy" : "Available"}
                           </span>
                         </td>
                       </tr>
@@ -448,7 +393,7 @@ export default function SupervisorDashboard() {
   );
 }
 
-/* --- HELPERS --- */
+// Helpers... (StatCard, Tab, Badge, StatusBadge - Keep same as before)
 function StatCard({ title, value, icon }) {
   return (
     <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between">
@@ -463,54 +408,20 @@ function StatCard({ title, value, icon }) {
 
 function Tab({ label, active, onClick }) {
   return (
-    <button
-      onClick={onClick}
-      className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-        active ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"
-      }`}
-    >
-      {label}
-    </button>
+    <button onClick={onClick} className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${active ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"}`}>{label}</button>
   );
 }
 
 function Badge({ type }) {
-  const colors = {
-    High: "bg-red-100 text-red-800",
-    Medium: "bg-yellow-100 text-yellow-800",
-    Low: "bg-green-100 text-green-800",
-  };
-  return (
-    <span
-      className={`px-2 py-0.5 rounded text-xs font-bold ${
-        colors[type] || "bg-gray-100"
-      }`}
-    >
-      {type}
-    </span>
-  );
+  const colors = { High: "bg-red-100 text-red-800", Medium: "bg-yellow-100 text-yellow-800", Low: "bg-green-100 text-green-800" };
+  return <span className={`px-2 py-0.5 rounded text-xs font-bold ${colors[type] || "bg-gray-100"}`}>{type}</span>;
 }
 
 function StatusBadge({ status }) {
   const normalizedStatus = status ? status.toLowerCase() : "";
   let colorClass = "bg-gray-100 text-gray-700 border-gray-200";
-
-  if (normalizedStatus === "completed" || normalizedStatus === "complemented") {
-    colorClass = "bg-green-100 text-green-700 border-green-200";
-  } else if (normalizedStatus === "pending") {
-    colorClass = "bg-yellow-100 text-yellow-800 border-yellow-200";
-  } else if (
-    normalizedStatus.includes("process") ||
-    normalizedStatus.includes("progress")
-  ) {
-    colorClass = "bg-blue-100 text-blue-700 border-blue-200";
-  }
-
-  return (
-    <span
-      className={`px-2.5 py-0.5 rounded border text-xs font-bold capitalize ${colorClass}`}
-    >
-      {status}
-    </span>
-  );
+  if (normalizedStatus === "completed") colorClass = "bg-green-100 text-green-700 border-green-200";
+  else if (normalizedStatus === "pending") colorClass = "bg-yellow-100 text-yellow-800 border-yellow-200";
+  else if (normalizedStatus.includes("process")) colorClass = "bg-blue-100 text-blue-700 border-blue-200";
+  return <span className={`px-2.5 py-0.5 rounded border text-xs font-bold capitalize ${colorClass}`}>{status}</span>;
 }
