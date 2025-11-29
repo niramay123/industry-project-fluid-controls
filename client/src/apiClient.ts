@@ -2,7 +2,9 @@ import axios from 'axios';
 
 const apiClient = axios.create({
   // This should be the correct baseURL based on your server/index.js file
-  baseURL: 'http://localhost:5000/api', 
+  //baseURL: 'http://localhost:5000/api',
+baseURL: import.meta.env.VITE_API_URL + '/api', // Use a Vite-compatible environment variable
+// ... 
   headers: {
     'Content-Type': 'application/json',
   },
